@@ -1,66 +1,49 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch
+import torch.nn as nn
 
-class TabTransformer(nn.Module):
-    def __init__(self, categories, num_continuous, d=32, n_layers=4, n_heads=4, mlp_hidden=[64, 32], task='classification'):
+class TabTransformerCredit(nn.Module):
+    def __init__(self, categories, num_continuous, d=32, n_layers=6, n_heads=8):
         super().__init__()
-        
-        # 1. Column Embedding Layer
+        # Based on paper specs: d=32, layers=6, heads=8 
         self.num_categories = len(categories)
         self.embeddings = nn.ModuleList([nn.Embedding(num_classes, d) for num_classes in categories])
         
-        # Unique Identifier 'c' to distinguish classes in column i from other columns
-        # Shape: (1, num_categories, d)
+        # Unique identifier 'c' to distinguish column classes 
         self.column_id = nn.Parameter(torch.randn(1, self.num_categories, d))
         
-        # 2. Stack of N Transformer Layers (Multi-head self-attention + Feed-forward)
-        # Using TransformerEncoderLayer as it provides the Full (Non-masked) Attention Matrix
-        self.transformer_stack = nn.ModuleList([
-            nn.TransformerEncoderLayer(
-                d_model=d, 
-                nhead=n_heads, 
-                dim_feedforward=d*4, 
-                dropout=0.1, 
-                batch_first=True,
-                norm_first=True # Better stability for tabular data
-            ) for _ in range(n_layers)
+        # Transformer Stack for Contextual Embeddings 
+        self.transformer = nn.ModuleList([
+            nn.TransformerEncoderLayer(d_model=d, nhead=n_heads, batch_first=True) 
+            for _ in range(n_layers)
         ])
         
-        # 3. Concatenation & MLP (g)
-        # Contextual embeddings (m * d) + continuous features (c)
-        input_dim_mlp = (self.num_categories * d) + num_continuous
-        
-        mlp_layers = []
-        for h_dim in mlp_hidden:
-            mlp_layers.append(nn.Linear(input_dim_mlp, h_dim))
-            mlp_layers.append(nn.ReLU())
-            mlp_layers.append(nn.LayerNorm(h_dim))
-            input_dim_mlp = h_dim
-        
-        # Output layer (v)
-        output_dim = 2 if task == 'classification' else 1
-        mlp_layers.append(nn.Linear(mlp_hidden[-1], output_dim))
-        
-        self.mlp = nn.Sequential(*mlp_layers)
-        self.task = task
+        # MLP Top Layer (g) 
+        # Input dim = (Number of Categories * d) + Number of Continuous 
+        input_dim = (self.num_categories * d) + num_continuous
+        self.mlp = nn.Sequential(
+            nn.Linear(input_dim, 128), # Layer size 4xl as suggested 
+            nn.ReLU(),
+            nn.Linear(128, 64),  # Layer size 2xl as suggested 
+            nn.ReLU(),
+            nn.Linear(64, 1),    # Output: Probability of Target
+            nn.Sigmoid()
+        )
 
     def forward(self, x_cat, x_cont):
-        # Embed each categorical feature into dimension d
-        # x_cat: (batch, num_categories)
-        embeddings = [embed(x_cat[:, i]) for i, embed in enumerate(self.embeddings)]
-        x = torch.stack(embeddings, dim=1) # (batch, m, d)
+        # 1. Column Embedding
+        x = [embed(x_cat[:, i]) for i, embed in enumerate(self.embeddings)]
+        x = torch.stack(x, dim=1) + self.column_id
         
-        # Add Unique Identifier (c) - this replaces positional encoding
-        x = x + self.column_id 
-        
-        # Pass through N Transformer layers to get contextual embeddings {h1, h2, ...}
-        for layer in self.transformer_stack:
+        # 2. Transformer Contextualization
+        for layer in self.transformer:
             x = layer(x)
         
-        # Flatten {h} and concatenate with x_cont
-        h_flat = x.flatten(1) 
-        combined = torch.cat([h_flat, x_cont], dim=1)
+        # 3. Concatenation with Continuous Features 
+        x_contextual = x.flatten(1)
+        combined = torch.cat([x_contextual, x_cont], dim=1)
         
-        # Prediction via top MLP g
+        # 4. Final Prediction
         return self.mlp(combined)
