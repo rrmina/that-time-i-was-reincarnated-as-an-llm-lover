@@ -4,7 +4,7 @@ import torch.optim as optim
 import torch
 import torch.nn as nn
 
-class TabTransformerCredit(nn.Module):
+class TabTransformer(nn.Module):
     def __init__(self, categories, num_continuous, d=32, n_layers=6, n_heads=8):
         super().__init__()
         # Based on paper specs: d=32, layers=6, heads=8 
