@@ -2,6 +2,7 @@ import torch
 import spacy
 import datasets as hf_datasets
 from pathlib import Path
+import pickle
 
 from copy import copy
 from collections import Counter
@@ -22,12 +23,18 @@ UNK_IDX, PAD_IDX, BOS_IDX, EOS_IDX = 0, 1, 2, 3
 class TranslationDataset(torch.utils.data.Dataset):
     def __init__(self,
         dataset_name: str = 'bentrevett/multi30k',
-        split: str = 'train'
+        split: str = 'train',
+        use_cache: bool = True
     ) -> None:
         super().__init__()
     
         self.dataset_name = dataset_name
         self.split = split
+        self.use_cache = use_cache
+        
+        # Setup cache directory
+        self.cache_dir = Path('data') / f"{dataset_name.replace('/', '_')}_cache"
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
         
         # Download dataset from HuggingFace repository
         print('Downloading and extracting dataset...')
@@ -46,17 +53,15 @@ class TranslationDataset(torch.utils.data.Dataset):
             TRG_LANGUAGE: self.trg_tokenizer
         }
     
-        # Build vocabularies from training data
-        print('Building vocabularies...')
-        self.src_vocab, self.trg_vocab = self._build_vocabularies()
+        # Build or load vocabularies
+        self.src_vocab, self.trg_vocab = self._get_or_build_vocabularies()
         self.vocabularies = {
             SRC_LANGUAGE: self.src_vocab,
             TRG_LANGUAGE: self.trg_vocab
         }
         
-        # Tokenize all data and convert to tensors
-        print('Tokenizing data and converting to tensors...')
-        data = self._tokenize_and_convert_to_tensors()
+        # Tokenize or load cached tokenized data
+        data = self._get_or_tokenize_data()
         
         self.data: List[Tuple[torch.Tensor, torch.Tensor]] = data
 
@@ -171,6 +176,74 @@ class TranslationDataset(torch.utils.data.Dataset):
                 trg_vocab[token] = len(trg_vocab)
 
         return src_vocab, trg_vocab
+    
+    def _get_or_build_vocabularies(self
+    ) -> Tuple[Dict, Dict]:
+        # Load vocabularies from cache if available, otherwise build them
+        src_vocab_path = self.cache_dir / 'src_vocab.pkl'
+        trg_vocab_path = self.cache_dir / 'trg_vocab.pkl'
+        
+        if self.use_cache and src_vocab_path.exists() and trg_vocab_path.exists():
+            print('Loading vocabularies from cache...')
+            try:
+                with open(src_vocab_path, 'rb') as f:
+                    src_vocab = pickle.load(f)
+                with open(trg_vocab_path, 'rb') as f:
+                    trg_vocab = pickle.load(f)
+                print(f'Vocabularies loaded from cache. Src vocab size: {len(src_vocab)}, Trg vocab size: {len(trg_vocab)}')
+                return src_vocab, trg_vocab
+            except Exception as e:
+                print(f'Failed to load vocabularies from cache: {e}')
+                print('Rebuilding vocabularies...')
+        
+        # Build vocabularies from scratch
+        print('Building vocabularies...')
+        src_vocab, trg_vocab = self._build_vocabularies()
+        
+        # Save to cache
+        if self.use_cache:
+            print('Saving vocabularies to cache...')
+            try:
+                with open(src_vocab_path, 'wb') as f:
+                    pickle.dump(src_vocab, f)
+                with open(trg_vocab_path, 'wb') as f:
+                    pickle.dump(trg_vocab, f)
+                print(f'Vocabularies saved to {self.cache_dir}')
+            except Exception as e:
+                print(f'Failed to save vocabularies to cache: {e}')
+        
+        return src_vocab, trg_vocab
+    
+    def _get_or_tokenize_data(self
+    ) -> List[Tuple[torch.Tensor, torch.Tensor]]:
+        # Load tokenized data from cache if available, otherwise tokenize it
+        data_cache_path = self.cache_dir / f'{self.split}_data.pt'
+        
+        if self.use_cache and data_cache_path.exists():
+            print(f'Loading tokenized {self.split} data from cache...')
+            try:
+                # Use torch.load with explicit weights_only=False for our trusted cache
+                data = torch.load(data_cache_path, weights_only=False)
+                print(f'Loaded {len(data)} tokenized sentence pairs from cache.')
+                return data
+            except Exception as e:
+                print(f'Failed to load tokenized data from cache: {e}')
+                print('Re-tokenizing data...')
+        
+        # Tokenize data from scratch
+        print('Tokenizing data and converting to tensors...')
+        data = self._tokenize_and_convert_to_tensors()
+        
+        # Save to cache using torch.save for tensor data
+        if self.use_cache:
+            print(f'Saving tokenized {self.split} data to cache...')
+            try:
+                torch.save(data, data_cache_path)
+                print(f'Tokenized data saved to {self.cache_dir}')
+            except Exception as e:
+                print(f'Failed to save tokenized data to cache: {e}')
+        
+        return data
     
     def _tokenize_and_convert_to_tensors(self
     ) -> List[Tuple[torch.Tensor, torch.Tensor]]:

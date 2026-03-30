@@ -2,7 +2,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from lightning.fabric import Fabric
+from lightning.fabric import Fabric, seed_everything
 import os
 
 from data import TranslationDataset, create_bucket_batches_from_translation_dataset, collate_fn
@@ -11,11 +11,16 @@ from model import Seq2Seq
 
 import time
 
+# Seed for reproducibility
+SEED = 42
+
+# Hyperparameters
 BATCH_SIZE = 124
 MAX_PAD_LEN = 5
 LEARNING_RATE = 1e-3
 NUM_EPOCHS = 3
 
+# Model hyperparameters
 ENC_EMBEDDING_DIM = ENC_HIDDEN_DIM = DEC_EMBEDDING_DIM = DEC_HIDDEN_DIM = 256
 
 ENC_NUM_LAYERS = 3
@@ -41,9 +46,6 @@ def train_model(
     num_epochs: int,
     save_path: str = 'checkpoints/seq2seq_model'
 ) -> None:
-    
-    # TODO: Implement training loop
-    # Sample implementation:
 
     # Create checkpoint directory if it doesn't exist
     os.makedirs(os.path.dirname(save_path) if os.path.dirname(save_path) else 'checkpoints', exist_ok=True)
@@ -138,12 +140,21 @@ def train_model(
 
 if __name__ == '__main__':
 
+    # Set seed for reproducibility
+    seed_everything(SEED, workers=True)
+    
+    # Enable deterministic mode for PyTorch
+    torch.use_deterministic_algorithms(True, warn_only=True)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
     # Initialize Fabric for device management and distributed training
     fabric = Fabric(accelerator='auto', devices='auto', precision='32-true')
     fabric.launch()
     
     fabric.print(f'Using device: {fabric.device}')
     fabric.print(f'World size: {fabric.world_size}')
+    fabric.print(f'Seed: {SEED} (deterministic mode enabled)')
 
     # Dataset and DataLoader
     trainset = TranslationDataset(
