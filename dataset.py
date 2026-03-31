@@ -8,6 +8,8 @@ from copy import copy
 from collections import Counter
 from typing import List, Tuple, Dict
 
+from utils import load_pickle, save_pickle
+
 # Define source and target languages
 SRC_LANGUAGE = 'en'
 TRG_LANGUAGE = 'de'
@@ -24,7 +26,6 @@ SPECIAL_TOKENS = {
 # Default tokenizer models
 DEFAULT_SRC_TOKENIZER = 'en_core_web_sm'
 DEFAULT_TRG_TOKENIZER = 'de_core_news_sm'
-
 
 #####################################################################
 #
@@ -182,8 +183,8 @@ class TranslationDataset(torch.utils.data.Dataset):
         if self.use_cache and src_vocab_path.exists() and trg_vocab_path.exists():
             print('Loading vocabularies from cache...')
             try:
-                src_vocab = self._load_pickle(src_vocab_path)
-                trg_vocab = self._load_pickle(trg_vocab_path)
+                src_vocab = load_pickle(src_vocab_path)
+                trg_vocab = load_pickle(trg_vocab_path)
                 print(f'Vocabularies loaded from cache. Src vocab size: {len(src_vocab)}, Trg vocab size: {len(trg_vocab)}')
                 return src_vocab, trg_vocab
             except Exception as e:
@@ -206,8 +207,8 @@ class TranslationDataset(torch.utils.data.Dataset):
         if self.use_cache:
             print('Saving vocabularies to cache...')
             try:
-                self._save_pickle(src_vocab, src_vocab_path)
-                self._save_pickle(trg_vocab, trg_vocab_path)
+                save_pickle(src_vocab, src_vocab_path)
+                save_pickle(trg_vocab, trg_vocab_path)
                 print(f'Vocabularies saved to {self.cache_dir}')
             except Exception as e:
                 print(f'Failed to save vocabularies to cache: {e}')
@@ -286,22 +287,3 @@ class TranslationDataset(torch.utils.data.Dataset):
             data.append((src_tensor, trg_tensor))
 
         return data
-    
-    #####################################################################
-    #
-    #                   IO Cache helpers
-    #
-    #####################################################################
-    def _load_pickle(self,
-        path: Path
-    ):
-        with open(path, 'rb') as f:
-            return pickle.load(f)
-
-    def _save_pickle(self,
-        obj,
-        path: Path
-    ) -> None:
-    
-        with open(path, 'wb') as f:
-            pickle.dump(obj, f)
