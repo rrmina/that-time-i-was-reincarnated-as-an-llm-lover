@@ -2,7 +2,8 @@
 import torch
 import torch.nn as nn
 
-from data import UNK_IDX, PAD_IDX, BOS_IDX, EOS_IDX
+from dataset import UNK_IDX, PAD_IDX, BOS_IDX, EOS_IDX
+from typing import List
 
 ################################################################################################################
 #
@@ -32,6 +33,8 @@ class Seq2Seq(nn.Module):
         dec_max_seq_len: int = 512
     ) -> None:
         super().__init__()
+
+        self.dec_max_seq_len = dec_max_seq_len  # for translate
 
         # For a vanilla Transformer architecture, all model dimensions must match
         #      (embedding_dim = hidden_dim) for both encoder and decoder
@@ -115,13 +118,65 @@ class Seq2Seq(nn.Module):
 
         return out
 
-    # Translate at infernence time - given a source sentence, generate the target sentence
+    # Translate at inference time - given a source sentence, generate the target sentence
     def translate(self,
-    ) -> str:
+        src: torch.Tensor,
+        max_len: int = 100
+    ) -> List[int]:
+        
+        self.eval()
 
-        # TODO: Implement translation/inference method
+        with torch.no_grad():
 
-        pass
+            # [1] Create encoder self attention mask (PADDING MASK)
+                                        # enc_self_attention_mask: [batch_size, 1, 1, src_seq_len]  - Encoder mask (PADDING MASK)
+            enc_self_attention_mask = self.create_enc_self_attention_mask(src = src)
+
+            # [2] Encoder forward pass
+                                        # encoder_out: [batch_size, src_seq_len, hidden_dim]
+            encoder_out = self.encoder(
+                src = src, 
+                mask = enc_self_attention_mask
+            )
+
+            # [3] Create decoder cross attention mask (PADDING MASK) - only need to do this once
+            dec_cross_attention_mask = self.create_dec_cross_attention_mask(src = src)
+
+            # [4] Decoder auto-regressive decoding loop
+            dec_outputs = [BOS_IDX]
+            for _ in range(max_len):
+                # Convert token ID to tensor
+                                        # dec_input_tensor: [1, dec_seq_len]
+                dec_input_tensor = torch.tensor(dec_outputs).to(src.device).reshape(1, -1)
+
+                # Create TRG mask for every iteration
+                                        # trg_mask: [1, 1, dec_seq_len, dec_seq_len]
+                dec_self_attention_mask = self.create_dec_self_attention_mask(trg = dec_input_tensor)
+
+                # Decoder forward pass
+                                        # decoder_out: [1, dec_seq_len, hidden_dim]
+                decoder_out = self.decoder(
+                    trg = dec_input_tensor,
+                    encoder_out = encoder_out,
+                    dec_self_attention_mask = dec_self_attention_mask,
+                    dec_cross_attention_mask = dec_cross_attention_mask
+                )
+
+                # Output Layer forward pass (project decoder output to target vocabulary size)
+                                        # out: [1, dec_seq_len, trg_vocab_size]
+                out = self.output_layer(decoder_out)
+
+                # Argmax to get the predicted token ID - Get the last token's prediction
+                pred = out.argmax(dim=-1)[:, -1].item()  
+
+                # Append predicted token ID to the decoder input for the next iteration
+                dec_outputs.append(pred)
+
+                # Stop if EOS token is generated
+                if pred == EOS_IDX:
+                    break
+
+            return dec_outputs
 
     @staticmethod
     def create_enc_self_attention_mask(
@@ -229,7 +284,7 @@ class Decoder(nn.Module):
     ) -> None:
         super().__init__()
 
-        self.hidden_dim = hidden_dim # for scaling the token embedding
+        self.hidden_dim = hidden_dim    # for scaling the token embedding
 
         # Vanilla Token Embedding Layer
         self.token_embedding_layer = TokenEmbeddingLayer(

@@ -1,6 +1,5 @@
 import torch
 import spacy
-import pickle
 import datasets as hf_datasets
 
 from pathlib import Path

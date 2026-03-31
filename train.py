@@ -5,8 +5,9 @@ import torch.optim as optim
 from lightning.fabric import Fabric, seed_everything
 import os
 
-from data import TranslationDataset, create_bucket_batches_from_translation_dataset, collate_fn
-from data import PAD_IDX
+from dataset import TranslationDataset
+from dataset import PAD_IDX
+from dataloader import create_bucket_batches_from_translation_dataset, collate_fn
 from model import Seq2Seq
 
 import time
@@ -18,7 +19,7 @@ SEED = 42
 BATCH_SIZE = 124
 MAX_PAD_LEN = 5
 LEARNING_RATE = 1e-3
-NUM_EPOCHS = 3
+NUM_EPOCHS = 50
 
 # Model hyperparameters
 ENC_EMBEDDING_DIM = ENC_HIDDEN_DIM = DEC_EMBEDDING_DIM = DEC_HIDDEN_DIM = 256
